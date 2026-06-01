@@ -14,6 +14,38 @@
 # stack); the demo data is synthetic so a gene track adds nothing here.
 # -----------------------------------------------------------------------------
 
+#' Thin a Manhattan/Miami point cloud so it renders in seconds, not minutes.
+#'
+#' Genome-wide sumstats hold tens of millions of variants; almost all have a
+#' tiny -log10(p) and pile into a dense band at the axis that is visually
+#' saturated long before every point is drawn, yet still costs the renderer.
+#' Keep every point with abs(y) >= keep_y (all peaks and near-peaks, where y is
+#' the signed -log10(p)) and randomly thin the sub-threshold band to at most
+#' max_low points. Deterministic via `seed`; restores the global RNG state.
+#'
+#' @param pts     data.frame with a numeric `y` column (signed -log10 p)
+#' @param keep_y  points with abs(y) >= keep_y are always kept
+#' @param max_low cap on the number of sub-threshold (abs(y) < keep_y) points
+#' @param seed    RNG seed for reproducible thinning
+#' @return pts with the low band downsampled
+downsample_miami_points <- function(pts, keep_y = 4, max_low = 5e5L, seed = 1L) {
+  if (is.null(pts) || nrow(pts) == 0L) {
+    return(pts)
+  }
+  low <- which(abs(pts$y) < keep_y)
+  if (length(low) <= max_low) {
+    return(pts)
+  }
+  has_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (has_seed) {
+    old_seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+    on.exit(assign(".Random.seed", old_seed, envir = .GlobalEnv), add = TRUE)
+  }
+  set.seed(seed)
+  drop <- sample(low, length(low) - max_low)
+  pts[-drop, , drop = FALSE]
+}
+
 #' Miami plot of the two traits with colocalising loci highlighted.
 #'
 #' Trait 1 is drawn as a Manhattan pointing UP (y = -log10(p)) and trait 2
@@ -56,6 +88,9 @@ make_miami <- function(ss1, ss2, loci, outfile, pp4_threshold = 0.8) {
     mk(ss2, "trait 2", -1)
   )
   pts <- pts[is.finite(pts$pos) & is.finite(pts$y), , drop = FALSE]
+
+  # Thin the dense sub-threshold cloud so a genome-wide plot renders in seconds.
+  pts <- downsample_miami_points(pts)
 
   # The loci to highlight: those that colocalise above threshold.
   hit <- loci[!is.na(loci$PP.H4) & loci$PP.H4 >= pp4_threshold, , drop = FALSE]
