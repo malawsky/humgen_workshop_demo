@@ -141,6 +141,20 @@ define_loci <- function(ss1, ss2,
 }
 
 #' Subset a standardised sumstats data.frame to one locus region.
+#'
+#' When `ss` is a data.table keyed on (chr, pos) this does a binary-search
+#' lookup on chr instead of a full linear scan; otherwise it falls back to the
+#' plain data.frame scan so small in-memory test frames still work. Always
+#' returns a plain data.frame with the same rows/columns as the scan would.
 extract_region <- function(ss, chr, start, end) {
+  if (data.table::is.data.table(ss) && length(data.table::key(ss))) {
+    # Bind the query value to a distinct name: inside ss[.(...)] an unquoted
+    # `chr` would resolve to ss's chr COLUMN, not this argument, matching every
+    # chromosome. chr_q forces a single-value binary-search lookup on the key.
+    chr_q <- chr
+    sub <- ss[list(chr_q), nomatch = NULL]
+    sub <- sub[sub$pos >= start & sub$pos <= end] # filter within chromosome
+    return(as.data.frame(sub))
+  }
   ss[ss$chr == chr & ss$pos >= start & ss$pos <= end, , drop = FALSE]
 }

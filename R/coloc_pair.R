@@ -105,6 +105,15 @@ if (nrow(loci) == 0) {
   quit(save = "no", status = 0)
 }
 
+# Index both frames once by (chr, pos) so each per-locus extract_region call is
+# a keyed binary-search lookup instead of a full ~tens-of-millions-row scan.
+# setkey sorts in place (no full copy); define_loci already ran and the only
+# later consumers (extract_region, make_miami) do not depend on row order.
+data.table::setDT(ss1)
+data.table::setkey(ss1, chr, pos)
+data.table::setDT(ss2)
+data.table::setkey(ss2, chr, pos)
+
 # 4. Run coloc on each locus, collecting one summary row each.
 rows <- list()
 for (i in seq_len(nrow(loci))) {
