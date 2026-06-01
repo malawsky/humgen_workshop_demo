@@ -45,8 +45,11 @@ See `SPEC.md`. In short, make this work end to end:
 Rscript R/coloc_pair.R \
   --study1 data/example/trait1.h.tsv.gz --type1 quant \
   --study2 data/example/trait2.h.tsv.gz --type2 quant \
+  --n1 50000 --n2 50000 \
   --outdir results/example
 ```
+
+Local files carry no sample-size metadata, so `--n1`/`--n2` are required for them.
 
 and then on real studies by passing GWAS Catalog accessions instead of paths:
 

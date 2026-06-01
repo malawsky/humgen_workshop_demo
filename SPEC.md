@@ -47,9 +47,10 @@ pipeline that those arguments drive; do not change the flag names.
 
 - `Rscript tests/test_worked_example.R` is green (it already is).
 - `Rscript R/coloc_pair.R --study1 data/example/trait1.h.tsv.gz --type1 quant
-  --study2 data/example/trait2.h.tsv.gz --type2 quant --outdir results/example`
-  writes a results table, a Miami plot, and at least one locus-zoom, and reports
-  locus A as colocalising.
+  --study2 data/example/trait2.h.tsv.gz --type2 quant --n1 50000 --n2 50000
+  --outdir results/example` writes a results table, a Miami plot, and at least
+  one locus-zoom, and reports locus A as colocalising. (Local files have no
+  sample-size metadata, so `--n1`/`--n2` must be supplied.)
 - The reviewer subagent has looked over the diff and its points are addressed.
 
 ## Deliberately out of scope

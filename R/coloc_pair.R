@@ -14,7 +14,8 @@
 #     --study2 data/example/trait2.h.tsv.gz --type2 quant \
 #     --outdir results/example
 #
-# Argument parsing is complete. The PIPELINE below is the build target.
+# Argument parsing is complete; the pipeline below loads, defines loci, runs
+# coloc, and writes the results table (plots are wired in later steps).
 # =============================================================================
 
 suppressPackageStartupMessages(library(optparse))
@@ -23,8 +24,10 @@ opts <- list(
   make_option("--study1", type = "character", help = "Trait 1: GCST accession OR local harmonised file"),
   make_option("--study2", type = "character", help = "Trait 2: GCST accession OR local harmonised file"),
   make_option("--outdir", type = "character", default = "results/run", help = "Output directory [%default]"),
-  make_option("--sig-mode", type = "character", default = "either",
-              help = "Define loci significant in: either|both|1|2 [%default]", dest = "sig_mode"),
+  make_option("--sig-mode",
+    type = "character", default = "either",
+    help = "Define loci significant in: either|both|1|2 [%default]", dest = "sig_mode"
+  ),
   make_option("--type1", type = "character", default = "quant", help = "Trait 1 type: quant|cc [%default]"),
   make_option("--type2", type = "character", default = "quant", help = "Trait 2 type: quant|cc [%default]"),
   make_option("--s1", type = "double", default = NA, help = "Trait 1 case proportion (if cc)"),
@@ -42,39 +45,93 @@ if (is.null(args$study1) || is.null(args$study2)) stop("--study1 and --study2 ar
 
 # Load the project's R modules (paths relative to repo root).
 here <- function(...) file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE))), "..", ...)
-source(here("R", "coloc_wrapper.R"))     # TRUSTED - do not modify
+source(here("R", "coloc_wrapper.R")) # TRUSTED - do not modify
 source(here("R", "download_sumstats.R"))
 source(here("R", "define_loci.R"))
 source(here("R", "plots.R"))
 
 dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
-# --- PIPELINE (build target) -------------------------------------------------
-# 1. Load both traits' sumstats (download + cache, or read local file).
-#       ss1 <- load_sumstats(args$study1, cache_dir = file.path(args$outdir, "cache"))
-#       ss2 <- load_sumstats(args$study2, ...)
-#       Resolve n1/n2 from study metadata if not supplied.
-#
-# 2. Define significant loci.
-#       loci <- define_loci(ss1, ss2, sig_mode = args$sig_mode,
-#                           p_threshold = args$p_threshold, window = args$window)
-#
-# 3. For each locus: extract the region from both traits, run coloc via the
-#    TRUSTED wrapper, and collect one summary row per locus.
-#       res  <- run_coloc_abf(extract_region(ss1, ...), extract_region(ss2, ...),
-#                             type1 = args$type1, type2 = args$type2,
-#                             n1 = n1, n2 = n2, s1 = args$s1, s2 = args$s2)
-#       row  <- summarise_coloc(res, locus_label)
-#    Write the combined table to file.path(args$outdir, "coloc_results.tsv").
-#
-# 4. Miami plot of both traits, colocalising loci highlighted ->
-#       file.path(args$outdir, "miami.png")
-#
-# 5. Locus zooms for the top-N loci by PP.H4 ->
-#       file.path(args$outdir, "locuszoom_<locus>.png")
-#
-# 6. Print a short summary to the console: how many loci tested, how many
-#    colocalise at PP.H4 >= args$pp4_threshold, and where the outputs are.
-# -----------------------------------------------------------------------------
+# Column names of an (empty) results table, taken from summarise_coloc().
+RESULT_COLS <- c(
+  "locus", "nsnps", "PP.H0", "PP.H1", "PP.H2",
+  "PP.H3", "PP.H4", "lead_snp"
+)
+results_path <- file.path(args$outdir, "coloc_results.tsv")
 
-stop("PIPELINE NOT YET IMPLEMENTED -- this is the build target. See SPEC.md.")
+# Write a header-only results table (used when there is nothing to report).
+write_empty_results <- function() {
+  empty <- as.data.frame(setNames(rep(list(character(0)), length(RESULT_COLS)), RESULT_COLS))
+  write.table(empty, results_path, row.names = FALSE, quote = FALSE, sep = "\t")
+  message("Results table: ", results_path)
+}
+
+# Resolve a trait's sample size: use --nX if given, else fail with guidance.
+# Local files carry no sample-size metadata, so N must be supplied explicitly.
+resolve_n <- function(n, study, flag) {
+  if (!is.na(n)) {
+    return(as.numeric(n))
+  }
+  if (file.exists(study)) {
+    stop(sprintf("local file '%s' has no sample-size metadata; pass %s", study, flag))
+  }
+  stop("resolving N from study metadata is not implemented yet (see step 7); pass ", flag)
+}
+
+# --- PIPELINE ----------------------------------------------------------------
+
+# 1. Load both traits' sumstats (local file read, or cached download).
+ss1 <- load_sumstats(args$study1, cache_dir = file.path(args$outdir, "cache"))
+ss2 <- load_sumstats(args$study2, cache_dir = file.path(args$outdir, "cache"))
+
+# 2. Resolve sample sizes and case proportions for each trait.
+n1 <- resolve_n(args$n1, args$study1, "--n1")
+n2 <- resolve_n(args$n2, args$study2, "--n2")
+s1 <- if (args$type1 == "cc" && !is.na(args$s1)) args$s1 else NULL
+s2 <- if (args$type2 == "cc" && !is.na(args$s2)) args$s2 else NULL
+
+# 3. Define significant loci shared/tested across the two traits.
+loci <- define_loci(ss1, ss2,
+  sig_mode = args$sig_mode,
+  p_threshold = args$p_threshold, window = args$window
+)
+
+if (nrow(loci) == 0) {
+  message("No significant loci found; writing an empty results table.")
+  write_empty_results()
+  quit(save = "no", status = 0)
+}
+
+# 4. Run coloc on each locus, collecting one summary row each.
+rows <- list()
+for (i in seq_len(nrow(loci))) {
+  locus <- loci[i, ]
+  r1 <- extract_region(ss1, locus$chr, locus$start, locus$end)
+  r2 <- extract_region(ss2, locus$chr, locus$start, locus$end)
+  res <- run_coloc_abf(r1, r2,
+    type1 = args$type1, type2 = args$type2,
+    n1 = n1, n2 = n2, s1 = s1, s2 = s2
+  )
+  row <- summarise_coloc(res, locus$locus_id)
+  if (!is.null(row)) rows[[length(rows) + 1]] <- row
+}
+if (length(rows) == 0) {
+  message("No locus had enough overlapping variants to test; writing an empty table.")
+  write_empty_results()
+  quit(save = "no", status = 0)
+}
+results <- do.call(rbind, rows)
+
+# 5. Sort by PP.H4 (strongest colocalisation first) and write the table.
+results <- results[order(-results$PP.H4), , drop = FALSE]
+write.table(results, results_path, row.names = FALSE, quote = FALSE, sep = "\t")
+
+# TODO: wire the Miami plot and the top-N locus zooms here once the plotting
+# helpers in plots.R are implemented (they currently stop()). The Miami plot
+# goes to miami.png and each locus zoom to locuszoom_<locus>.png under outdir.
+
+# 6. Console summary.
+n_coloc <- sum(results$PP.H4 >= args$pp4_threshold)
+message(sprintf("Loci tested: %d", nrow(results)))
+message(sprintf("Colocalising (PP.H4 >= %.2f): %d", args$pp4_threshold, n_coloc))
+message("Results table: ", results_path)
