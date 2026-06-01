@@ -135,8 +135,27 @@ tryCatch(
   error = function(e) warning("Miami plot failed: ", conditionMessage(e))
 )
 
-# TODO: wire the top-N locus zooms here once make_locuszoom() in plots.R is
-# implemented (step 6); each goes to locuszoom_<locus>.png under outdir.
+# Locus-zoom plots: top-N loci by PP.H4 (results is already sorted desc). Map
+# each back to its coordinates via `loci` (locus_id == locus). Failures warn but
+# never abort the run.
+zoom_paths <- character(0)
+tryCatch(
+  {
+    top <- head(results, args$top_n)
+    for (i in seq_len(nrow(top))) {
+      lid <- top$locus[i]
+      lc <- loci[loci$locus_id == lid, , drop = FALSE]
+      if (nrow(lc) == 0) next
+      safe <- gsub("[^A-Za-z0-9]+", "_", lid)
+      zoom_path <- file.path(args$outdir, sprintf("locuszoom_%s.png", safe))
+      make_locuszoom(ss1, ss2, lc$chr[1], lc$start[1], lc$end[1], zoom_path,
+        lead_snp = top$lead_snp[i], locus_id = lid
+      )
+      if (file.exists(zoom_path)) zoom_paths <- c(zoom_paths, zoom_path)
+    }
+  },
+  error = function(e) warning("Locus-zoom plots failed: ", conditionMessage(e))
+)
 
 # 6. Console summary.
 n_coloc <- sum(results$PP.H4 >= args$pp4_threshold)
@@ -144,3 +163,4 @@ message(sprintf("Loci tested: %d", nrow(results)))
 message(sprintf("Colocalising (PP.H4 >= %.2f): %d", args$pp4_threshold, n_coloc))
 message("Results table: ", results_path)
 if (file.exists(miami_path)) message("Miami plot: ", miami_path)
+message(sprintf("Locus-zoom plots written: %d", length(zoom_paths)))

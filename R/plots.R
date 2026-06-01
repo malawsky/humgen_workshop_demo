@@ -1,21 +1,17 @@
 # =============================================================================
 # plots.R  --  the Miami plot and the per-locus locus-zoom plots.
 #
-# STATUS: make_miami() implemented; make_locuszoom() is the remaining stub.
+# STATUS: implemented. Both plots are self-contained ggplot2 (no Bioconductor).
 # =============================================================================
 #
 # Miami plot: two Manhattan plots back to back -- trait 1 pointing up, trait 2
-# pointing down, sharing the x-axis (genomic position). Highlight the loci that
-# colocalise (PP.H4 above threshold).
-#   * The `topr` package (CRAN) draws Manhattan/Miami plots directly from a
-#     data.frame with CHROM, POS, P columns -- a good starting point.
-#   * A ggplot2 version is fine too if you prefer full control of the highlight.
+# pointing down, sharing the x-axis (genomic position), with colocalising loci
+# (PP.H4 above threshold) shaded and labelled.
 #
-# Locus zoom: a regional association plot for one locus with a gene track.
-#   * The `locuszoomr` package (CRAN): build a locus object with locus(),
-#     then plot with locus_plot(). Gene tracks need an Ensembl annotation
-#     package, e.g. EnsDb.Hsapiens.v86 (GRCh38) from Bioconductor.
-#   * LD overlay is optional (LDlink API) and NOT needed for the demo.
+# Locus zoom: a regional -log10(p) plot for one locus, overlaying both traits so
+# coinciding peaks are visible, with the lead SNP marked. Gene tracks are
+# deliberately omitted (they would require the EnsDb / Bioconductor annotation
+# stack); the demo data is synthetic so a gene track adds nothing here.
 # -----------------------------------------------------------------------------
 
 #' Miami plot of the two traits with colocalising loci highlighted.
@@ -118,11 +114,96 @@ make_miami <- function(ss1, ss2, loci, outfile, pp4_threshold = 0.8) {
   invisible(outfile)
 }
 
-#' Locus-zoom plot for a single locus, for one or both traits.
-#' @param ss        standardised sumstats for the trait
+#' Regional association (locus-zoom) plot overlaying both traits.
+#'
+#' Subsets each trait's standardised sumstats to the region [start,end] on
+#' `chr` and draws a single panel of -log10(p) vs position, with the two traits
+#' overlaid in distinct colours so coinciding peaks are visible. The
+#' genome-wide threshold is a dashed line; if `lead_snp` is supplied and found
+#' in either trait, its position is marked with a vertical dashed line. No gene
+#' track (deliberately self-contained ggplot2; no Bioconductor stack).
+#'
+#' @param ss1,ss2   standardised sumstats (cols incl. snp,chr,pos,p)
 #' @param chr,start,end  region
 #' @param outfile   path to write the PNG
-#' @param ens_db    an EnsDb object for the gene track, or NULL to skip it
-make_locuszoom <- function(ss, chr, start, end, outfile, ens_db = NULL) {
-  stop("TODO: regional association plot via locuszoomr::locus() + locus_plot()")
+#' @param lead_snp  optional lead SNP id to mark with a vertical line
+#' @param locus_id  optional locus label used as the plot title
+#' @return invisibly, the path written
+make_locuszoom <- function(ss1, ss2, chr, start, end, outfile,
+                           lead_snp = NULL, locus_id = NULL) {
+  suppressPackageStartupMessages(library(ggplot2))
+
+  gw_line <- -log10(5e-8) # genome-wide significance line height
+
+  # Subset each trait to the region (same logic as extract_region).
+  region <- function(ss) {
+    if (is.null(ss) || nrow(ss) == 0) {
+      return(ss[0, , drop = FALSE])
+    }
+    ss[ss$chr == chr & ss$pos >= start & ss$pos <= end, , drop = FALSE]
+  }
+  r1 <- region(ss1)
+  r2 <- region(ss2)
+
+  # Build the point data, coercing p away from 0 so -log10(p) stays finite.
+  mk <- function(ss, trait) {
+    if (nrow(ss) == 0) {
+      return(NULL)
+    }
+    p <- pmax(as.numeric(ss$p), 1e-300)
+    data.frame(
+      snp = as.character(ss$snp),
+      pos = as.numeric(ss$pos),
+      y = -log10(p),
+      trait = trait,
+      stringsAsFactors = FALSE
+    )
+  }
+  pts <- rbind(mk(r1, "trait 1"), mk(r2, "trait 2"))
+
+  # Guard empty region: nothing to draw.
+  if (is.null(pts) || nrow(pts) == 0) {
+    warning("make_locuszoom: no variants in region; skipping plot")
+    return(invisible(outfile))
+  }
+  pts <- pts[is.finite(pts$pos) & is.finite(pts$y), , drop = FALSE]
+  if (nrow(pts) == 0) {
+    warning("make_locuszoom: no finite points in region; skipping plot")
+    return(invisible(outfile))
+  }
+
+  title <- if (!is.null(locus_id)) {
+    locus_id
+  } else {
+    sprintf("chr%s:%g-%g", chr, start, end)
+  }
+
+  p <- ggplot(pts, aes(x = .data$pos, y = .data$y, colour = .data$trait)) +
+    geom_point(size = 1.1, alpha = 0.7) +
+    geom_hline(yintercept = gw_line, linetype = "dashed", colour = "grey40") +
+    scale_colour_manual(
+      values = c("trait 1" = "#1f77b4", "trait 2" = "#d62728")
+    ) +
+    labs(
+      x = "Position (bp)", y = expression(-log[10](p)),
+      colour = NULL, title = title
+    ) +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "top")
+
+  # Mark the lead SNP's position if we can locate it in either trait.
+  if (!is.null(lead_snp) && !is.na(lead_snp)) {
+    hit <- pts$pos[pts$snp == lead_snp]
+    if (length(hit) > 0) {
+      p <- p + geom_vline(
+        xintercept = hit[1], linetype = "dashed", colour = "grey20"
+      )
+    }
+  }
+
+  # Render headlessly to PNG.
+  png(outfile, width = 1100, height = 750, res = 120)
+  on.exit(dev.off(), add = TRUE)
+  print(p)
+  invisible(outfile)
 }
