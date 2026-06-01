@@ -38,6 +38,8 @@ opts <- list(
   make_option("--p-threshold", type = "double", default = 5e-8, dest = "p_threshold", help = "GWAS sig threshold [%default]"),
   make_option("--pp4-threshold", type = "double", default = 0.8, dest = "pp4_threshold", help = "PP.H4 to call a coloc [%default]"),
   make_option("--top-n", type = "integer", default = 5, dest = "top_n", help = "Locus zooms for top-N loci by PP.H4 [%default]"),
+  # NOTE: cached sumstats are currently always kept under <outdir>/cache;
+  # this flag is reserved and performs no cleanup (no deletion is done).
   make_option("--keep-sumstats", action = "store_true", default = FALSE, dest = "keep_sumstats", help = "Keep downloaded sumstats")
 )
 args <- parse_args(OptionParser(option_list = opts))
@@ -76,7 +78,7 @@ resolve_n <- function(n, study, flag) {
   if (file.exists(study)) {
     stop(sprintf("local file '%s' has no sample-size metadata; pass %s", study, flag))
   }
-  stop("resolving N from study metadata is not implemented yet (see step 7); pass ", flag)
+  return(resolve_study_n(study))
 }
 
 # --- PIPELINE ----------------------------------------------------------------
