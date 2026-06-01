@@ -49,6 +49,7 @@ source(here("R", "coloc_wrapper.R")) # TRUSTED - do not modify
 source(here("R", "download_sumstats.R"))
 source(here("R", "define_loci.R"))
 source(here("R", "plots.R"))
+source(here("R", "report.R"))
 
 dir.create(args$outdir, recursive = TRUE, showWarnings = FALSE)
 
@@ -157,6 +158,14 @@ tryCatch(
   error = function(e) warning("Locus-zoom plots failed: ", conditionMessage(e))
 )
 
+# Self-contained HTML report (final output). A failing report warns but never
+# aborts the run, matching the Miami / locus-zoom blocks above.
+report_path <- file.path(args$outdir, "report.html")
+tryCatch(
+  make_report(args$outdir, results, loci, args, n1, n2, miami_path, zoom_paths, report_path),
+  error = function(e) warning("HTML report failed: ", conditionMessage(e))
+)
+
 # 6. Console summary.
 n_coloc <- sum(results$PP.H4 >= args$pp4_threshold)
 message(sprintf("Loci tested: %d", nrow(results)))
@@ -164,3 +173,4 @@ message(sprintf("Colocalising (PP.H4 >= %.2f): %d", args$pp4_threshold, n_coloc)
 message("Results table: ", results_path)
 if (file.exists(miami_path)) message("Miami plot: ", miami_path)
 message(sprintf("Locus-zoom plots written: %d", length(zoom_paths)))
+if (file.exists(report_path)) message("HTML report: ", report_path)

@@ -85,6 +85,16 @@ if (nrow(res) >= 1L && have_cols) {
           sprintf("other locus is the ~chr1:60Mb locus and does NOT colocalise (PP.H3=%.3f > PP.H4=%.3f)",
                   other$PP.H3, other$PP.H4))
   }
+
+  # --- 4. Self-contained HTML report ----------------------------------------
+  report_path <- file.path(outdir, "report.html")
+  check(file.exists(report_path), "report.html written")
+  if (file.exists(report_path)) {
+    check(file.info(report_path)$size > 0, "report.html is non-empty")
+    report_txt <- paste(readLines(report_path, warn = FALSE), collapse = "\n")
+    check(grepl(res$locus[1], report_txt, fixed = TRUE),
+          sprintf("report.html contains the top locus id (%s)", res$locus[1]))
+  }
 }
 
 cat(if (fail == 0L) "\nAll pipeline checks passed.\n" else sprintf("\n%d check(s) failed.\n", fail))

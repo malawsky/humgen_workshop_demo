@@ -9,6 +9,7 @@ cran <- c(
   "topr",         # Manhattan / Miami plots
   "locuszoomr",   # regional locus-zoom plots
   "gwasrapidd",   # GWAS Catalog REST API (study metadata, top associations)
+  "knitr",        # image_uri: embed plot PNGs inline in the HTML report
   "remotes"       # to install gwascatftp from GitHub
 )
 to_get <- setdiff(cran, rownames(installed.packages()))
