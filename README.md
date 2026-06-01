@@ -17,9 +17,9 @@ Colocalisation uses `coloc::coloc.abf` (one causal variant per locus). A locus
 
 ## QuickStart: T2D vs LDL from scratch
 
-This runs end to end on two real GWAS Catalog studies and needs nothing but R
-and a network connection. It was tested from a clean R library — install,
-run, open the report.
+This runs end to end on two real, full-genome GWAS Catalog studies and needs
+nothing but R and a network connection. It was tested from a clean R library —
+install, run, open the report.
 
 **1. Get the code and install dependencies** (one time; all from CRAN):
 
@@ -29,30 +29,34 @@ cd humgen_workshop_demo
 Rscript install.R
 ```
 
-**2. Run the colocalisation** — Type 2 diabetes vs LDL cholesterol, both from
-the Genes & Health British-Bangladeshi/Pakistani cohort:
+**2. Run the colocalisation** — Type 2 diabetes (focal) against LDL cholesterol:
 
 ```bash
 Rscript R/coloc_pair.R \
-  --study1 GCST90727286 --type1 cc --s1 0.2578 \
-  --study2 GCST90727331 --type2 quant \
-  --sig-mode either \
+  --study1 GCST90018926 --type1 cc --s1 0.09 \
+  --study2 GCST90239655 --type2 quant \
+  --sig-mode 1 \
   --outdir results/t2d_ldl
 ```
 
-- `--study1 GCST90727286` — T2D, a **case/control** trait (`--type1 cc`).
-  `--s1 0.2578` is the case fraction (11,348 cases / 44,026 total).
-- `--study2 GCST90727331` — LDL cholesterol, a **quantitative** trait.
-- **Sample sizes are pulled automatically** from GWAS Catalog metadata
-  (N = 44,026 and 25,080), so no `--n` is needed for accessions.
-- The first run downloads the two harmonised files (~48 MB + ~36 MB) into
-  `results/t2d_ldl/cache/` and reuses them on later runs.
+- `--study1 GCST90018926` — Type 2 diabetes, a **case/control** trait
+  (`--type1 cc`). `--s1 0.09` is the case fraction (~9% cases).
+- `--study2 GCST90239655` — LDL cholesterol, a **quantitative** trait.
+- `--sig-mode 1` makes **T2D the focal trait**: loci are defined from the
+  genome-wide-significant hits in trait 1 only, and each is then tested for
+  colocalisation with LDL. (Use `either`/`both`/`2` for the other modes.)
+- **Sample sizes (N) are pulled automatically** from GWAS Catalog metadata, so
+  no `--n` is needed for accessions.
+- The first run downloads the two harmonised files (~0.6 GB + ~1.3 GB) into
+  `results/t2d_ldl/cache/`. It also caches the *parsed* sumstats as
+  `<study>.std.v1.fst`, so later runs skip both the download and the
+  multi-minute parse and finish in a few minutes.
 
-It takes roughly **a minute** after the download. You should see:
+You should see:
 
 ```
-Loci tested: 20
-Colocalising (PP.H4 >= 0.80): 0
+Loci tested: 196
+Colocalising (PP.H4 >= 0.80): 6
 Results table: results/t2d_ldl/coloc_results.tsv
 Miami plot: results/t2d_ldl/miami.png
 Locus-zoom plots written: 5
@@ -65,13 +69,12 @@ HTML report: results/t2d_ldl/report.html
 open results/t2d_ldl/report.html        # macOS  (Linux: xdg-open)
 ```
 
-**Reading the result.** Across the 20 genome-wide-significant loci, none reach
-the `PP.H4 >= 0.8` colocalisation threshold — T2D and LDL are largely driven by
-*different* causal variants here, which is the expected biology. The strongest
-shared-signal evidence is at **chr19:18.8–19.8 Mb** (`PP.H4 ≈ 0.40`, near
-*TM6SF2*); the well-known *APOE* locus (`rs7412`, chr19:44–45 Mb) shows a clear
-LDL-only signal (`PP.H2 ≈ 0.85`). To see what a *positive* colocalisation looks
-like, run the worked example below.
+**Reading the result.** Of the 196 genome-wide-significant T2D loci, **6
+colocalise** with LDL (`PP.H4 >= 0.8`) — i.e. the same causal variant drives
+both traits there; the rest are T2D-specific or driven by a *distinct* nearby
+variant (high `PP.H3`), the expected biology. The strongest shared signals are
+**chr12:3.5–5.0 Mb** (`PP.H4 ≈ 1.0`) and **chr2:26.8–28.1 Mb** (`rs1260326`,
+near *GCKR*, a classic glucose/lipid pleiotropy locus, `PP.H4 ≈ 0.999`).
 
 ---
 
