@@ -2,7 +2,7 @@
 # download_sumstats.R  --  resolve a GWAS Catalog study to harmonised sumstats
 #                          and return a standardised data.frame.
 #
-# STATUS: STUB. Implement the TODOs during the build.
+# STATUS: local-file path implemented; accession download is deferred (step 7).
 # =============================================================================
 #
 # Harmonised summary statistics live on the EBI FTP/HTTPS server, e.g.:
@@ -40,6 +40,19 @@ resolve_harmonised_url <- function(accession) {
   stop("TODO: resolve the harmonised .h.tsv.gz URL for the accession")
 }
 
+# Harmonised column name -> standardised column name (fixed mapping, see CLAUDE.md).
+HM_MAP <- c(
+  snp  = "hm_rsid",
+  chr  = "hm_chrom",
+  pos  = "hm_pos",
+  ea   = "hm_effect_allele",
+  oa   = "hm_other_allele",
+  maf  = "hm_effect_allele_frequency",
+  beta = "hm_beta",
+  se   = "standard_error",
+  p    = "p_value"
+)
+
 #' Load sumstats for one trait as a standardised data.frame.
 #'
 #' Accepts EITHER a GWAS Catalog accession (downloads + caches to `cache_dir`)
@@ -50,14 +63,30 @@ resolve_harmonised_url <- function(accession) {
 #' @param cache_dir  where downloads are cached (skip re-download if present)
 #' @return data.frame with columns STD_COLS (one row per variant)
 load_sumstats <- function(study, cache_dir = "cache") {
-  if (file.exists(study)) {
-    path <- study
-  } else {
-    # TODO: resolve_harmonised_url(study) -> download to cache_dir if missing
-    stop("TODO: download path for accession not implemented")
+  if (!file.exists(study)) {
+    # TODO (step 7): resolve_harmonised_url(study) -> download to cache_dir.
+    stop("accession download not implemented yet (see step 7)")
   }
-  raw <- data.table::fread(path)
-  # TODO: rename harmonised columns to STD_COLS, coerce types, drop NA beta/se,
-  #       keep autosomes (or whatever the brief says), return as data.frame.
-  stop("TODO: harmonise columns to STD_COLS and return")
+
+  raw <- data.table::fread(study)
+
+  # Pull the harmonised columns into the standardised STD_COLS order.
+  df <- data.frame(
+    snp  = as.character(raw[[HM_MAP[["snp"]]]]),
+    chr  = as.character(raw[[HM_MAP[["chr"]]]]),   # character so X/Y survive
+    pos  = as.integer(raw[[HM_MAP[["pos"]]]]),
+    ea   = as.character(raw[[HM_MAP[["ea"]]]]),
+    oa   = as.character(raw[[HM_MAP[["oa"]]]]),
+    maf  = as.numeric(raw[[HM_MAP[["maf"]]]]),
+    beta = as.numeric(raw[[HM_MAP[["beta"]]]]),
+    se   = as.numeric(raw[[HM_MAP[["se"]]]]),
+    p    = as.numeric(raw[[HM_MAP[["p"]]]]),        # p_value is a sci-notation string
+    stringsAsFactors = FALSE
+  )
+
+  # Drop variants with an unusable effect size or standard error.
+  keep <- is.finite(df$beta) & df$beta != 0 & is.finite(df$se) & df$se != 0
+  df <- df[keep, , drop = FALSE]
+
+  as.data.frame(df[, STD_COLS], stringsAsFactors = FALSE)
 }
