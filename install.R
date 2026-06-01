@@ -6,6 +6,7 @@ repos <- "https://cloud.r-project.org"
 cran <- c(
   "optparse",     # CLI argument parsing
   "data.table",   # fast sumstats I/O
+  "fst",          # fast cache of parsed sumstats frames (re-run skips re-parse)
   "R.utils",      # lets data.table::fread read gzipped (.h.tsv.gz) files
   "coloc",        # colocalisation (coloc.abf)
   "gwasrapidd",   # GWAS Catalog REST API (study metadata / sample size)

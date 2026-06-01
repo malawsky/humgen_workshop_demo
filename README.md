@@ -120,9 +120,11 @@ Notes:
 
 - Pick two studies that **have harmonised summary statistics** on the GWAS
   Catalog. Full files are large; the first run caches them under `<outdir>/cache/`.
+  The first run also caches the *parsed* sumstats as `<study>.std.v1.fst`, so a
+  re-run skips both the download and the multi-minute parse of full-genome files.
 - `cache/` and `results/` are git-ignored.
 - Requirements: R (tested on 4.5) and the CRAN packages in `install.R`
   (`coloc`, `data.table`, `R.utils`, `gwasrapidd`, `curl`, `ggplot2`, `knitr`,
-  `optparse`). No Bioconductor or system tools needed.
+  `fst`, `optparse`). No Bioconductor or system tools needed.
 
 See `SPEC.md` for the full specification and `CLAUDE.md` for conventions.

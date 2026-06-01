@@ -19,7 +19,7 @@
 #   gwasrapidd::get_studies(study_id = ...).
 #
 # Harmonised -> standardised column mapping. Two layouts exist in the wild and
-# both are supported (see HM_MAP / pick_col): the older hm_* names and the
+# both are supported (see HM_MAP): the older hm_* names and the
 # modern GWAS-SSF names. We try the hm_* name first, then the plain name:
 #   hm_rsid                    | rsid                     -> snp
 #   hm_chrom                   | chromosome               -> chr
@@ -35,8 +35,13 @@
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(curl))
 suppressPackageStartupMessages(library(gwasrapidd))
+suppressPackageStartupMessages(library(fst))
 
 STD_COLS <- c("snp", "chr", "pos", "ea", "oa", "maf", "beta", "se", "p")
+
+# Bump this whenever read_harmonised's columns, types, or row filter change, so
+# old .std.fst caches (keyed by accession) are not silently reused as stale.
+STD_PARSE_VERSION <- 1L
 
 # Compute the 1000-wide range bucket that prefixes the accession on the FTP
 # tree, preserving the accession's zero-padding width. For example accession
@@ -104,48 +109,65 @@ HM_MAP <- list(
   p    = c("p_value", "hm_p_value")
 )
 
-# Return the first candidate column present in `raw`, or stop with guidance.
-pick_col <- function(raw, std_name) {
-  hit <- HM_MAP[[std_name]][HM_MAP[[std_name]] %in% names(raw)]
-  if (length(hit) == 0) {
-    stop(sprintf(
-      "harmonised file has no column for '%s' (looked for: %s); present: %s",
-      std_name, paste(HM_MAP[[std_name]], collapse = ", "),
-      paste(names(raw), collapse = ", ")
-    ))
-  }
-  raw[[hit[1]]]
-}
-
 #' Read a harmonised-format file into a standardised data.frame.
 #'
 #' Reads the harmonised columns into the standardised STD_COLS order and drops
 #' variants with an unusable effect size or standard error. Handles both the
 #' older hm_* column layout and the modern GWAS-SSF layout (see HM_MAP).
+#' Reads with explicit colClasses + threading and renames/reorders in place, so
+#' a second full copy of the 9 columns is never made (lower peak RAM, faster).
 #' @param path  path to a harmonised "*.h.tsv.gz" file
 #' @return data.frame with columns STD_COLS (one row per variant)
 read_harmonised <- function(path) {
-  raw <- data.table::fread(path)
+  # Read the header only (nrows = 0) to learn which candidate column names this
+  # file uses, then re-read selecting just those. Harmonised files carry many
+  # columns we never use; on a >1 GB file, parsing only the 9 we need is far
+  # faster and uses far less memory than reading everything.
+  header <- data.table::fread(path, nrows = 0)
+  want <- vapply(STD_COLS, function(s) {
+    hit <- HM_MAP[[s]][HM_MAP[[s]] %in% names(header)]
+    if (length(hit) == 0) "" else hit[1]
+  }, character(1))
+  missing <- STD_COLS[want == ""]
+  if (length(missing) > 0) {
+    stop(sprintf(
+      "harmonised file %s lacks column(s) for: %s; present: %s",
+      path, paste(missing, collapse = ", "),
+      paste(names(header), collapse = ", ")
+    ))
+  }
 
-  # Pull the harmonised columns into the standardised STD_COLS order.
-  df <- data.frame(
-    snp = as.character(pick_col(raw, "snp")),
-    chr = as.character(pick_col(raw, "chr")), # character so X/Y survive
-    pos = as.integer(pick_col(raw, "pos")),
-    ea = as.character(pick_col(raw, "ea")),
-    oa = as.character(pick_col(raw, "oa")),
-    maf = as.numeric(pick_col(raw, "maf")),
-    beta = as.numeric(pick_col(raw, "beta")),
-    se = as.numeric(pick_col(raw, "se")),
-    p = as.numeric(pick_col(raw, "p")), # p_value is a sci-notation string
-    stringsAsFactors = FALSE
+  # Force the right type per column at parse time so fread never guesses and we
+  # avoid an as.*()-driven second copy of every column. chr stays character so
+  # X/Y survive; pos as integer is safe (positions < 2^31). Keyed by the ACTUAL
+  # present names (unname(want)), which is what fread sees in the file.
+  classes <- c(
+    snp = "character", chr = "character", pos = "integer",
+    ea = "character", oa = "character", maf = "double",
+    beta = "double", se = "double", p = "double"
+  )
+  col_classes <- setNames(classes[STD_COLS], unname(want))
+
+  # Read once, only the 9 columns, using all available threads.
+  raw <- data.table::fread(
+    path,
+    select = unname(want),
+    colClasses = col_classes,
+    nThread = data.table::getDTthreads()
   )
 
-  # Drop variants with an unusable effect size or standard error.
-  keep <- is.finite(df$beta) & df$beta != 0 & is.finite(df$se) & df$se != 0
-  df <- df[keep, , drop = FALSE]
+  # `want` is named by STD_COLS in priority order, so unname(want) aligns
+  # positionally with STD_COLS; rename + reorder in place (no copy).
+  data.table::setnames(raw, unname(want), STD_COLS)
+  data.table::setcolorder(raw, STD_COLS)
 
-  as.data.frame(df[, STD_COLS], stringsAsFactors = FALSE)
+  # Drop variants with an unusable effect size or standard error.
+  keep <- is.finite(raw$beta) & raw$beta != 0 &
+    is.finite(raw$se) & raw$se != 0
+  raw <- raw[keep]
+
+  # Downstream code expects a plain data.frame; columns already in STD_COLS.
+  as.data.frame(raw)
 }
 
 #' Load sumstats for one trait as a standardised data.frame.
@@ -164,6 +186,17 @@ load_sumstats <- function(study, cache_dir = "cache") {
 
   # Accession: download (once) to the cache, then read from there.
   dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # Parsed-frame cache, keyed by accession (same policy as the .h.tsv.gz cache).
+  # Parsing a full-genome harmonised file takes minutes; caching the already-
+  # standardised frame as .fst lets re-runs skip both download AND parse.
+  std_cache <- file.path(
+    cache_dir, sprintf("%s.std.v%d.fst", study, STD_PARSE_VERSION)
+  )
+  if (file.exists(std_cache) && file.info(std_cache)$size > 0) {
+    return(fst::read_fst(std_cache))
+  }
+
   dest <- file.path(cache_dir, paste0(study, ".h.tsv.gz"))
   if (!(file.exists(dest) && file.info(dest)$size > 0)) {
     url <- resolve_harmonised_url(study)
@@ -173,7 +206,14 @@ load_sumstats <- function(study, cache_dir = "cache") {
     curl::curl_download(url, part)
     file.rename(part, dest)
   }
-  read_harmonised(dest)
+  df <- read_harmonised(dest)
+
+  # Write parsed frame via temp-then-rename, so a crash mid-write never leaves a
+  # truncated .std.fst that the cache check above would later trust.
+  tmp <- paste0(std_cache, ".part")
+  fst::write_fst(df, tmp)
+  file.rename(tmp, std_cache)
+  df
 }
 
 #' Resolve a study accession to its sample size N.
