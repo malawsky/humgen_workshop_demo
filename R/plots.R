@@ -149,23 +149,27 @@ make_miami <- function(ss1, ss2, loci, outfile, pp4_threshold = 0.8) {
   invisible(outfile)
 }
 
-#' Regional association (locus-zoom) plot overlaying both traits.
+#' Regional (locus-zoom) plot: the two traits stacked for visual comparison.
 #'
-#' Subsets each trait's standardised sumstats to the region [start,end] on
-#' `chr` and draws a single panel of -log10(p) vs position, with the two traits
-#' overlaid in distinct colours so coinciding peaks are visible. The
-#' genome-wide threshold is a dashed line; if `lead_snp` is supplied and found
-#' in either trait, its position is marked with a vertical dashed line. No gene
-#' track (deliberately self-contained ggplot2; no Bioconductor stack).
+#' Subsets both traits to the locus, then ZOOMS to a window of +/- `flank` bp
+#' around the lead SNP (clamped to the locus) so the signal is readable instead
+#' of lost in a wide merged window. The two traits are drawn in SEPARATE
+#' stacked panels (trait 1 on top, trait 2 below) sharing the x-axis, so
+#' coinciding peaks line up vertically. The lead SNP is a vertical dashed line
+#' in both panels and the colocalisation posterior is annotated as a subtitle.
+#' No gene track (deliberately self-contained ggplot2; no Bioconductor stack).
 #'
 #' @param ss1,ss2   standardised sumstats (cols incl. snp,chr,pos,p)
-#' @param chr,start,end  region
+#' @param chr,start,end  locus region
 #' @param outfile   path to write the PNG
-#' @param lead_snp  optional lead SNP id to mark with a vertical line
+#' @param lead_snp  optional lead SNP id; centres the window and is marked
 #' @param locus_id  optional locus label used as the plot title
+#' @param pp4,pp3   optional coloc posteriors, annotated at the top
+#' @param flank     half-width in bp of the focused window around the lead SNP
 #' @return invisibly, the path written
 make_locuszoom <- function(ss1, ss2, chr, start, end, outfile,
-                           lead_snp = NULL, locus_id = NULL) {
+                           lead_snp = NULL, locus_id = NULL,
+                           pp4 = NA, pp3 = NA, flank = 2.5e5) {
   suppressPackageStartupMessages(library(ggplot2))
 
   gw_line <- -log10(5e-8) # genome-wide significance line height
@@ -207,37 +211,59 @@ make_locuszoom <- function(ss1, ss2, chr, start, end, outfile,
     return(invisible(outfile))
   }
 
+  # Centre on the lead SNP (fall back to the strongest point), then zoom to a
+  # focused window so the locus is readable rather than a wide merged span.
+  lead_pos <- NA_real_
+  if (!is.null(lead_snp) && !is.na(lead_snp)) {
+    hit <- pts$pos[pts$snp == lead_snp]
+    if (length(hit) > 0) lead_pos <- hit[1]
+  }
+  if (is.na(lead_pos)) lead_pos <- pts$pos[which.max(pts$y)]
+
+  win_lo <- max(start, lead_pos - flank)
+  win_hi <- min(end, lead_pos + flank)
+  pts <- pts[pts$pos >= win_lo & pts$pos <= win_hi, , drop = FALSE]
+  if (nrow(pts) == 0) {
+    warning("make_locuszoom: no points in focused window; skipping plot")
+    return(invisible(outfile))
+  }
+
+  # Stack the two traits (trait 1 on top) so coinciding peaks line up.
+  pts$trait <- factor(pts$trait, levels = c("trait 1", "trait 2"))
+
   title <- if (!is.null(locus_id)) {
     locus_id
   } else {
     sprintf("chr%s:%g-%g", chr, start, end)
   }
 
+  # Annotate the colocalisation posterior (and lead SNP) at the top.
+  sub_bits <- character(0)
+  if (!is.na(pp4)) sub_bits <- c(sub_bits, sprintf("PP.H4 = %.3f", pp4))
+  if (!is.na(pp3)) sub_bits <- c(sub_bits, sprintf("PP.H3 = %.3f", pp3))
+  if (!is.null(lead_snp) && !is.na(lead_snp)) {
+    sub_bits <- c(sub_bits, sprintf("lead %s", lead_snp))
+  }
+  subtitle <- if (length(sub_bits)) paste(sub_bits, collapse = "   |   ") else NULL
+
   p <- ggplot(pts, aes(x = .data$pos, y = .data$y, colour = .data$trait)) +
     geom_point(size = 1.1, alpha = 0.7) +
     geom_hline(yintercept = gw_line, linetype = "dashed", colour = "grey40") +
+    geom_vline(xintercept = lead_pos, linetype = "dashed", colour = "grey20") +
+    facet_grid(trait ~ ., scales = "free_y") +
     scale_colour_manual(
-      values = c("trait 1" = "#1f77b4", "trait 2" = "#d62728")
+      values = c("trait 1" = "#1f77b4", "trait 2" = "#d62728"),
+      guide = "none"
     ) +
     labs(
       x = "Position (bp)", y = expression(-log[10](p)),
-      colour = NULL, title = title
+      title = title, subtitle = subtitle
     ) +
     theme_bw(base_size = 12) +
-    theme(legend.position = "top")
-
-  # Mark the lead SNP's position if we can locate it in either trait.
-  if (!is.null(lead_snp) && !is.na(lead_snp)) {
-    hit <- pts$pos[pts$snp == lead_snp]
-    if (length(hit) > 0) {
-      p <- p + geom_vline(
-        xintercept = hit[1], linetype = "dashed", colour = "grey20"
-      )
-    }
-  }
+    theme(strip.text = element_text(face = "bold"))
 
   # Render headlessly to PNG.
-  png(outfile, width = 1100, height = 750, res = 120)
+  png(outfile, width = 1100, height = 800, res = 120)
   on.exit(dev.off(), add = TRUE)
   print(p)
   invisible(outfile)

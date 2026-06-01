@@ -203,9 +203,11 @@ make_report <- function(outdir, results, loci, args, n1, n2,
 
   plots_html <- embed_png(miami_path, "Miami plot")
   if (!is.null(zoom_paths) && length(zoom_paths) > 0) {
-    for (zp in zoom_paths) {
-      cap <- paste0("Locus zoom: ", basename(zp))
-      plots_html <- paste0(plots_html, embed_png(zp, cap))
+    znames <- names(zoom_paths)
+    for (k in seq_along(zoom_paths)) {
+      zp <- zoom_paths[[k]]
+      lid <- if (!is.null(znames) && nzchar(znames[k])) znames[k] else basename(zp)
+      plots_html <- paste0(plots_html, embed_png(zp, paste0("Locus zoom — ", lid)))
     }
   }
   if (!nzchar(plots_html)) {

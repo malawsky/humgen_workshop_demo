@@ -161,9 +161,12 @@ tryCatch(
       safe <- gsub("[^A-Za-z0-9]+", "_", lid)
       zoom_path <- file.path(args$outdir, sprintf("locuszoom_%s.png", safe))
       make_locuszoom(ss1, ss2, lc$chr[1], lc$start[1], lc$end[1], zoom_path,
-        lead_snp = top$lead_snp[i], locus_id = lid
+        lead_snp = top$lead_snp[i], locus_id = lid,
+        pp4 = top$PP.H4[i], pp3 = top$PP.H3[i]
       )
-      if (file.exists(zoom_path)) zoom_paths <- c(zoom_paths, zoom_path)
+      if (file.exists(zoom_path)) {
+        zoom_paths <- c(zoom_paths, setNames(zoom_path, lid))
+      }
     }
   },
   error = function(e) warning("Locus-zoom plots failed: ", conditionMessage(e))
