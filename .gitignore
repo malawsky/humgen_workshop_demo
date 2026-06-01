@@ -1,0 +1,14 @@
+# downloaded sumstats and run outputs are temporary and large
+results/
+cache/
+*.h.tsv.gz
+*.tsv.gz.tbi
+
+# but DO keep the worked-example data
+!data/example/*.h.tsv.gz
+
+# R / editor cruft
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store

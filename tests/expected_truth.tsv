@@ -1,0 +1,3 @@
+locus	region_start	region_end	expected	lead_pos
+A	49990000	50410000	H4	50200000
+B	59990000	60410000	H3	60150000,60350000
