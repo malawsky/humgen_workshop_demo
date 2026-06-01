@@ -126,12 +126,21 @@ results <- do.call(rbind, rows)
 results <- results[order(-results$PP.H4), , drop = FALSE]
 write.table(results, results_path, row.names = FALSE, quote = FALSE, sep = "\t")
 
-# TODO: wire the Miami plot and the top-N locus zooms here once the plotting
-# helpers in plots.R are implemented (they currently stop()). The Miami plot
-# goes to miami.png and each locus zoom to locuszoom_<locus>.png under outdir.
+# Miami plot: attach each locus's PP.H4 (matched by id) and draw it. Plot
+# failures warn but never abort the run.
+loci$PP.H4 <- results$PP.H4[match(loci$locus_id, results$locus)]
+miami_path <- file.path(args$outdir, "miami.png")
+tryCatch(
+  make_miami(ss1, ss2, loci, miami_path, args$pp4_threshold),
+  error = function(e) warning("Miami plot failed: ", conditionMessage(e))
+)
+
+# TODO: wire the top-N locus zooms here once make_locuszoom() in plots.R is
+# implemented (step 6); each goes to locuszoom_<locus>.png under outdir.
 
 # 6. Console summary.
 n_coloc <- sum(results$PP.H4 >= args$pp4_threshold)
 message(sprintf("Loci tested: %d", nrow(results)))
 message(sprintf("Colocalising (PP.H4 >= %.2f): %d", args$pp4_threshold, n_coloc))
 message("Results table: ", results_path)
+if (file.exists(miami_path)) message("Miami plot: ", miami_path)
