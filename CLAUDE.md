@@ -24,11 +24,15 @@ readable code over defensive engineering.
 - A locus is significant variants windowed by `--window` (default 500 kb) and
   merged where they overlap.
 - Harmonised sumstats live on EBI:
-  `https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/<RANGE>/<GCST>/harmonised/<PMID>-<GCST>-<EFO>.h.tsv.gz` (GRCh38).
-  Resolve the path with `gwascatftp`; get study metadata with `gwasrapidd`.
-- Harmonised → standardised columns (fixed mapping):
-  `hm_rsid→snp, hm_chrom→chr, hm_pos→pos, hm_effect_allele→ea,
-  hm_other_allele→oa, hm_effect_allele_frequency→maf, hm_beta→beta,
+  `https://ftp.ebi.ac.uk/pub/databases/gwas/summary_statistics/<RANGE>/<GCST>/harmonised/<file>.h.tsv.gz` (GRCh38).
+  We resolve the path over HTTPS (compute the range bucket, list the
+  `harmonised/` dir, pick the `*.h.tsv.gz`) — not `gwascatftp`, whose `lftp`
+  dependency is absent. Study metadata comes from `gwasrapidd`.
+- Harmonised → standardised columns. Two layouts exist; both are supported by
+  trying the `hm_*` name first, then the modern GWAS-SSF name:
+  `hm_rsid|rsid→snp, hm_chrom|chromosome→chr, hm_pos|base_pair_location→pos,
+  hm_effect_allele|effect_allele→ea, hm_other_allele|other_allele→oa,
+  hm_effect_allele_frequency|effect_allele_frequency→maf, hm_beta|beta→beta,
   standard_error→se, p_value→p`.
 - `coloc::coloc.abf` wants `varbeta = se^2`; case/control traits also need `s`.
 

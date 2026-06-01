@@ -18,16 +18,18 @@
 # Study metadata (sample size, trait, case/control counts) comes from
 #   gwasrapidd::get_studies(study_id = ...).
 #
-# Harmonised -> standardised column mapping (this is fixed, put it in CLAUDE.md):
-#   hm_rsid                       -> snp
-#   hm_chrom                      -> chr
-#   hm_pos                        -> pos
-#   hm_effect_allele              -> ea
-#   hm_other_allele               -> oa
-#   hm_effect_allele_frequency    -> maf
-#   hm_beta                       -> beta
-#   standard_error                -> se
-#   p_value                       -> p
+# Harmonised -> standardised column mapping. Two layouts exist in the wild and
+# both are supported (see HM_MAP / pick_col): the older hm_* names and the
+# modern GWAS-SSF names. We try the hm_* name first, then the plain name:
+#   hm_rsid                    | rsid                     -> snp
+#   hm_chrom                   | chromosome               -> chr
+#   hm_pos                     | base_pair_location       -> pos
+#   hm_effect_allele           | effect_allele            -> ea
+#   hm_other_allele            | other_allele             -> oa
+#   hm_effect_allele_frequency | effect_allele_frequency  -> maf
+#   hm_beta                    | beta                     -> beta
+#   standard_error                                        -> se
+#   p_value                                               -> p
 # -----------------------------------------------------------------------------
 
 suppressPackageStartupMessages(library(data.table))
@@ -87,23 +89,39 @@ resolve_harmonised_url <- function(accession) {
   paste0(dir_url, files[1])
 }
 
-# Harmonised column name -> standardised column name (fixed mapping, see CLAUDE.md).
-HM_MAP <- c(
-  snp  = "hm_rsid",
-  chr  = "hm_chrom",
-  pos  = "hm_pos",
-  ea   = "hm_effect_allele",
-  oa   = "hm_other_allele",
-  maf  = "hm_effect_allele_frequency",
-  beta = "hm_beta",
-  se   = "standard_error",
-  p    = "p_value"
+# Standardised column -> candidate harmonised column names, in priority order.
+# Older harmonised files use the hm_* names; modern GWAS-SSF files use the plain
+# names. We try each candidate in turn so both layouts load (see CLAUDE.md).
+HM_MAP <- list(
+  snp  = c("hm_rsid", "rsid"),
+  chr  = c("hm_chrom", "chromosome"),
+  pos  = c("hm_pos", "base_pair_location"),
+  ea   = c("hm_effect_allele", "effect_allele"),
+  oa   = c("hm_other_allele", "other_allele"),
+  maf  = c("hm_effect_allele_frequency", "effect_allele_frequency"),
+  beta = c("hm_beta", "beta"),
+  se   = c("standard_error", "hm_standard_error"),
+  p    = c("p_value", "hm_p_value")
 )
+
+# Return the first candidate column present in `raw`, or stop with guidance.
+pick_col <- function(raw, std_name) {
+  hit <- HM_MAP[[std_name]][HM_MAP[[std_name]] %in% names(raw)]
+  if (length(hit) == 0) {
+    stop(sprintf(
+      "harmonised file has no column for '%s' (looked for: %s); present: %s",
+      std_name, paste(HM_MAP[[std_name]], collapse = ", "),
+      paste(names(raw), collapse = ", ")
+    ))
+  }
+  raw[[hit[1]]]
+}
 
 #' Read a harmonised-format file into a standardised data.frame.
 #'
 #' Reads the harmonised columns into the standardised STD_COLS order and drops
-#' variants with an unusable effect size or standard error.
+#' variants with an unusable effect size or standard error. Handles both the
+#' older hm_* column layout and the modern GWAS-SSF layout (see HM_MAP).
 #' @param path  path to a harmonised "*.h.tsv.gz" file
 #' @return data.frame with columns STD_COLS (one row per variant)
 read_harmonised <- function(path) {
@@ -111,15 +129,15 @@ read_harmonised <- function(path) {
 
   # Pull the harmonised columns into the standardised STD_COLS order.
   df <- data.frame(
-    snp = as.character(raw[[HM_MAP[["snp"]]]]),
-    chr = as.character(raw[[HM_MAP[["chr"]]]]), # character so X/Y survive
-    pos = as.integer(raw[[HM_MAP[["pos"]]]]),
-    ea = as.character(raw[[HM_MAP[["ea"]]]]),
-    oa = as.character(raw[[HM_MAP[["oa"]]]]),
-    maf = as.numeric(raw[[HM_MAP[["maf"]]]]),
-    beta = as.numeric(raw[[HM_MAP[["beta"]]]]),
-    se = as.numeric(raw[[HM_MAP[["se"]]]]),
-    p = as.numeric(raw[[HM_MAP[["p"]]]]), # p_value is a sci-notation string
+    snp = as.character(pick_col(raw, "snp")),
+    chr = as.character(pick_col(raw, "chr")), # character so X/Y survive
+    pos = as.integer(pick_col(raw, "pos")),
+    ea = as.character(pick_col(raw, "ea")),
+    oa = as.character(pick_col(raw, "oa")),
+    maf = as.numeric(pick_col(raw, "maf")),
+    beta = as.numeric(pick_col(raw, "beta")),
+    se = as.numeric(pick_col(raw, "se")),
+    p = as.numeric(pick_col(raw, "p")), # p_value is a sci-notation string
     stringsAsFactors = FALSE
   )
 

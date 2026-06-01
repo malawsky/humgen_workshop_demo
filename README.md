@@ -1,45 +1,84 @@
 # coloc-pair
 
-A small command-line tool that takes **two GWAS Catalog studies**, runs
-**colocalisation** on their significant loci, and produces a **Miami plot**, a
-**results table**, and **locus-zoom plots** for the top hits.
+A command-line tool that runs **colocalisation** on two GWAS studies and tells
+you, for each shared locus, whether they are driven by the **same causal
+variant**. Point it at two GWAS Catalog accessions (or two local harmonised
+files) and it produces:
 
-This repository is a **template for a live build**: the structure, the trusted
-statistical core, the worked example, and the agent roles are in place; the
-download/loci/plot/pipeline code is left as the build target (`SPEC.md`).
+- `coloc_results.tsv` — one row per locus with the coloc posteriors `PP.H0`–`PP.H4`
+- `miami.png` — both traits back-to-back, colocalising loci highlighted
+- `locuszoom_<locus>.png` — a regional plot for each of the top loci
+- `report.html` — a single self-contained page with the tables and every plot
 
-## Why it is laid out this way
+Colocalisation uses `coloc::coloc.abf` (one causal variant per locus). A locus
+**colocalises** when `PP.H4 >= 0.8`.
 
-It follows the workshop principles:
+---
 
-- **Context as layout** — files sit where the agent expects (`R/`, `data/`,
-  `tests/`, `results/`); `CLAUDE.md` is the standing brief.
-- **A trusted template** — `R/coloc_wrapper.R` is known-good and must not be
-  rewritten; the agent builds around it.
-- **An answer you already know** — `data/example/` has a synthetic pair with a
-  *planted* result (one shared locus, one distinct), checked by the test.
-- **Specialised agents** — planner, coder, reviewer, tester in `.claude/agents/`.
-- **Version control as memory** — commit after each working step.
+## QuickStart: T2D vs LDL from scratch
 
-## Setup
+This runs end to end on two real GWAS Catalog studies and needs nothing but R
+and a network connection. It was tested from a clean R library — install,
+run, open the report.
 
-```bash
-Rscript install.R        # coloc, topr, locuszoomr, gwasrapidd, gwascatftp, ...
-```
-
-## The worked example (no network needed)
+**1. Get the code and install dependencies** (one time; all from CRAN):
 
 ```bash
-Rscript tests/test_worked_example.R
+git clone git@github.com:malawsky/humgen_workshop_demo.git
+cd humgen_workshop_demo
+Rscript install.R
 ```
 
-This runs the trusted wrapper on `data/example/` and checks the planted answer:
-locus A colocalises (PP.H4 ≈ 0.93), locus B does not (PP.H3 ≈ 1.0). It passes
-*before* any of the build target is written — it is checking the trusted core.
+**2. Run the colocalisation** — Type 2 diabetes vs LDL cholesterol, both from
+the Genes & Health British-Bangladeshi/Pakistani cohort:
 
-## The build target
+```bash
+Rscript R/coloc_pair.R \
+  --study1 GCST90727286 --type1 cc --s1 0.2578 \
+  --study2 GCST90727331 --type2 quant \
+  --sig-mode either \
+  --outdir results/t2d_ldl
+```
 
-See `SPEC.md`. In short, make this work end to end:
+- `--study1 GCST90727286` — T2D, a **case/control** trait (`--type1 cc`).
+  `--s1 0.2578` is the case fraction (11,348 cases / 44,026 total).
+- `--study2 GCST90727331` — LDL cholesterol, a **quantitative** trait.
+- **Sample sizes are pulled automatically** from GWAS Catalog metadata
+  (N = 44,026 and 25,080), so no `--n` is needed for accessions.
+- The first run downloads the two harmonised files (~48 MB + ~36 MB) into
+  `results/t2d_ldl/cache/` and reuses them on later runs.
+
+It takes roughly **a minute** after the download. You should see:
+
+```
+Loci tested: 20
+Colocalising (PP.H4 >= 0.80): 0
+Results table: results/t2d_ldl/coloc_results.tsv
+Miami plot: results/t2d_ldl/miami.png
+Locus-zoom plots written: 5
+HTML report: results/t2d_ldl/report.html
+```
+
+**3. Open the report:**
+
+```bash
+open results/t2d_ldl/report.html        # macOS  (Linux: xdg-open)
+```
+
+**Reading the result.** Across the 20 genome-wide-significant loci, none reach
+the `PP.H4 >= 0.8` colocalisation threshold — T2D and LDL are largely driven by
+*different* causal variants here, which is the expected biology. The strongest
+shared-signal evidence is at **chr19:18.8–19.8 Mb** (`PP.H4 ≈ 0.40`, near
+*TM6SF2*); the well-known *APOE* locus (`rs7412`, chr19:44–45 Mb) shows a clear
+LDL-only signal (`PP.H2 ≈ 0.85`). To see what a *positive* colocalisation looks
+like, run the worked example below.
+
+---
+
+## 30-second smoke test (no network)
+
+A synthetic pair ships in `data/example/` with a planted answer: one shared
+locus, one distinct. Use it to confirm your install works.
 
 ```bash
 Rscript R/coloc_pair.R \
@@ -49,34 +88,41 @@ Rscript R/coloc_pair.R \
   --outdir results/example
 ```
 
-Local files carry no sample-size metadata, so `--n1`/`--n2` are required for them.
+Locus A colocalises (`PP.H4 ≈ 0.93`); locus B does not (`PP.H3 ≈ 1.0`). Local
+files carry no metadata, so `--n1`/`--n2` are required for them.
 
-and then on real studies by passing GWAS Catalog accessions instead of paths:
+To check the trusted statistical core on its own: `Rscript tests/test_worked_example.R`.
 
-```bash
-Rscript R/coloc_pair.R \
-  --study1 GCST90012345 --type1 cc --s1 0.2 \
-  --study2 GCST90067890 --type2 quant \
-  --sig-mode either --outdir results/run1
-```
+---
 
-## The loop to run during the build
+## Running your own studies
 
-1. Write one clear, scoped task (a step from `SPEC.md`).
-2. Have the **planner** plan it; read the plan.
-3. Approve it, or correct it and plan again.
-4. Let the **coder** implement that one step.
-5. Run your checks (`tests/`, and the **tester** for new features).
-6. **Review** the diff (`/review`, the **reviewer** subagent), then commit.
-7. Clear context, start the next step.
+Either argument can be a **GWAS Catalog accession** (downloaded and cached) or a
+**local harmonised `*.h.tsv.gz` file** (read directly). Both the older `hm_*`
+and the modern GWAS-SSF harmonised column layouts are supported.
 
-## Notes for real data
+Key options (`Rscript R/coloc_pair.R --help` for all):
 
-- Harmonised sumstats are large; the first run downloads and caches them under
-  `<outdir>/cache/`. **Pre-warm the cache before a live demo** so the run is
-  quick. Cache and outputs are git-ignored.
-- Pick two studies that have *harmonised* summary statistics on the GWAS Catalog
-  and that plausibly share a locus (e.g. two related lipid or glycaemic traits)
-  so there is a real PP.H4 to show. Verify availability beforehand.
-- `--type` is `cc` (case/control) or `quant`; case/control traits also need
-  `--s` (case proportion).
+| Flag | Meaning | Default |
+|---|---|---|
+| `--study1`, `--study2` | accession or local file (required) | — |
+| `--type1`, `--type2` | `quant` or `cc` (case/control) | `quant` |
+| `--s1`, `--s2` | case fraction; **required for `cc`** | — |
+| `--n1`, `--n2` | sample size; **required for local files** (auto for accessions) | metadata |
+| `--sig-mode` | define loci significant in `either`, `both`, `1`, or `2` | `either` |
+| `--window` | locus half-width in bp (merged where they overlap) | `5e5` |
+| `--p-threshold` | genome-wide significance | `5e-8` |
+| `--pp4-threshold` | `PP.H4` to call a colocalisation | `0.8` |
+| `--top-n` | how many top loci get a locus-zoom plot | `5` |
+| `--outdir` | where results, plots, cache are written | `results/run` |
+
+Notes:
+
+- Pick two studies that **have harmonised summary statistics** on the GWAS
+  Catalog. Full files are large; the first run caches them under `<outdir>/cache/`.
+- `cache/` and `results/` are git-ignored.
+- Requirements: R (tested on 4.5) and the CRAN packages in `install.R`
+  (`coloc`, `data.table`, `R.utils`, `gwasrapidd`, `curl`, `ggplot2`, `knitr`,
+  `optparse`). No Bioconductor or system tools needed.
+
+See `SPEC.md` for the full specification and `CLAUDE.md` for conventions.
