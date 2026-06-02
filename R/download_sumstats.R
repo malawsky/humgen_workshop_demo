@@ -41,7 +41,7 @@ STD_COLS <- c("snp", "chr", "pos", "ea", "oa", "maf", "beta", "se", "p")
 
 # Bump this whenever read_harmonised's columns, types, or row filter change, so
 # old .std.fst caches (keyed by accession) are not silently reused as stale.
-STD_PARSE_VERSION <- 1L
+STD_PARSE_VERSION <- 2L
 
 # Compute the 1000-wide range bucket that prefixes the accession on the FTP
 # tree, preserving the accession's zero-padding width. For example accession
@@ -160,6 +160,13 @@ read_harmonised <- function(path) {
   # positionally with STD_COLS; rename + reorder in place (no copy).
   data.table::setnames(raw, unname(want), STD_COLS)
   data.table::setcolorder(raw, STD_COLS)
+
+  # data.table::fread silently bumps p to character when the file holds p-values
+  # below the double underflow limit (e.g. "1e-320", "0") -- the strong hits in
+  # well-powered GWAS -- even though colClasses asked for double. Force it back,
+  # or downstream significance tests (is.finite(p) & p < 5e-8) see all-FALSE and
+  # report "no significant loci".
+  if (!is.numeric(raw$p)) raw[, p := as.numeric(p)]
 
   # Drop variants with an unusable effect size or standard error.
   keep <- is.finite(raw$beta) & raw$beta != 0 &
